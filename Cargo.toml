@@ -1,6 +1,6 @@
 [package]
 name = "ghelper-linux"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "GHelper Linux — ASUS ROG laptop battery & system TUI for Pop!_OS / Ubuntu"
 license = "MIT"
