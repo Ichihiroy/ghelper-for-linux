@@ -85,7 +85,7 @@ alias ghelper='ghelper-linux'
 ### Option 3 — Build from source
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/ghelper-for-linux
+git clone https://github.com/ichihiroy/ghelper-for-linux
 cd ghelper-for-linux
 cargo build --release
 sudo cp target/release/ghelper-linux /usr/local/bin/ghelper
