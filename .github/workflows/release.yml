@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target:
+          - x86_64-unknown-linux-musl   # static — works on any x86_64 Linux
+          - aarch64-unknown-linux-musl  # static — ARM64 (Raspberry Pi, Apple M1 via Asahi, etc.)
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install musl cross-compile tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y musl-tools gcc-aarch64-linux-gnu
+
+      - name: Configure cross-compiler for ARM64
+        if: matrix.target == 'aarch64-unknown-linux-musl'
+        run: |
+          mkdir -p ~/.cargo
+          cat >> ~/.cargo/config.toml << 'EOF'
+          [target.aarch64-unknown-linux-musl]
+          linker = "aarch64-linux-gnu-gcc"
+          EOF
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package
+        shell: bash
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          BINARY=ghelper-linux
+          ARCHIVE="${BINARY}-${VERSION}-${{ matrix.target }}"
+
+          mkdir -p "${ARCHIVE}"
+          cp "target/${{ matrix.target }}/release/${BINARY}" "${ARCHIVE}/"
+          cp README.md LICENSE setup.sh "${ARCHIVE}/"
+
+          tar -czf "${ARCHIVE}.tar.gz" "${ARCHIVE}"
+          echo "ASSET=${ARCHIVE}.tar.gz" >> "$GITHUB_ENV"
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ASSET }}
+          generate_release_notes: true

@@ -1,0 +1,29 @@
+[package]
+name = "ghelper-linux"
+version = "0.1.0"
+edition = "2021"
+description = "GHelper Linux — ASUS ROG laptop battery & system TUI for Pop!_OS / Ubuntu"
+license = "MIT"
+repository = "https://github.com/YOUR_USERNAME/ghelper-for-linux"
+homepage = "https://github.com/YOUR_USERNAME/ghelper-for-linux"
+readme = "README.md"
+keywords = ["asus", "rog", "battery", "tui", "linux"]
+categories = ["command-line-utilities"]
+exclude = [".github/*", "target/*"]
+
+[[bin]]
+name = "ghelper-linux"
+path = "src/main.rs"
+
+[dependencies]
+ratatui   = "0.29"
+crossterm = "0.28"
+serde       = { version = "1", features = ["derive"] }
+serde_json  = "1"
+dirs        = "5"
+
+[profile.release]
+opt-level     = 3
+lto           = true
+codegen-units = 1
+strip         = true
