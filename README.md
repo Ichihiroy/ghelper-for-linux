@@ -59,7 +59,7 @@ If the file exists, you're good to go.
 
 ### Option 1 — Download binary (fastest)
 
-Grab the latest release from the [Releases page](https://github.com/YOUR_USERNAME/ghelper-for-linux/releases):
+Grab the latest release from the [Releases page](https://github.com/ichihiroy/ghelper-for-linux/releases):
 
 ```bash
 # Download and extract
