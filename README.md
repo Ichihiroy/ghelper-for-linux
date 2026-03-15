@@ -1,6 +1,5 @@
 # ghelper-linux
-
-**Still under development
+# Still under development
 
 A terminal UI (TUI) alternative to [GHelper](https://github.com/seerge/g-helper) for ASUS ROG / TUF laptops on Linux (Pop!_OS, Ubuntu, Arch, etc.).
 
