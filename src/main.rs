@@ -1,6 +1,7 @@
 mod app;
 mod battery;
 mod config;
+mod gpu;
 mod system;
 
 fn main() {

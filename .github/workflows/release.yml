@@ -46,6 +46,7 @@ jobs:
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Package
+        id: package
         shell: bash
         run: |
           VERSION=${GITHUB_REF#refs/tags/}
@@ -57,10 +58,10 @@ jobs:
           cp README.md LICENSE setup.sh "${ARCHIVE}/"
 
           tar -czf "${ARCHIVE}.tar.gz" "${ARCHIVE}"
-          echo "ASSET=${ARCHIVE}.tar.gz" >> "$GITHUB_ENV"
+          echo "asset=${ARCHIVE}.tar.gz" >> "$GITHUB_OUTPUT"
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ env.ASSET }}
+          files: ${{ steps.package.outputs.asset }}
           generate_release_notes: true

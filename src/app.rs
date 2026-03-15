@@ -23,6 +23,7 @@ use ratatui::{
 use crate::{
     battery::{BatteryManager, ChargeStatus},
     config::Config,
+    gpu::{GpuManager, GpuMode, PowerProfile},
     system::SystemInfo,
 };
 
@@ -52,17 +53,20 @@ pub enum Focus { Sidebar, Content }
 pub enum Status { None, Ok(String), Err(String) }
 
 pub struct TuiApp {
-    pub battery:         BatteryManager,
-    pub system:          SystemInfo,
-    pub config:          Config,
-    pub active_tab:      usize,   // 0 battery  1 system  2 settings
-    pub focus:           Focus,
-    pub desired_limit:   u8,
-    pub status:          Status,
-    pub status_until:    Option<Instant>,
-    pub last_refresh:    Instant,
-    pub should_quit:     bool,
-    pub settings_cursor: usize,
+    pub battery:          BatteryManager,
+    pub system:           SystemInfo,
+    pub config:           Config,
+    pub gpu:              GpuManager,
+    pub active_tab:       usize,   // 0 battery  1 system  2 gpu  3 settings
+    pub focus:            Focus,
+    pub desired_limit:    u8,
+    pub status:           Status,
+    pub status_until:     Option<Instant>,
+    pub last_refresh:     Instant,
+    pub should_quit:      bool,
+    pub settings_cursor:  usize,
+    pub gpu_section:      usize,  // 0 = gpu mode  1 = power profile
+    pub gpu_last_section: usize,  // which section triggered the last status
 }
 
 impl TuiApp {
@@ -74,6 +78,7 @@ impl TuiApp {
             desired_limit: desired,
             battery,
             system: SystemInfo::new(),
+            gpu: GpuManager::new(),
             config,
             active_tab: 0,
             focus: Focus::Sidebar,
@@ -82,6 +87,8 @@ impl TuiApp {
             last_refresh: Instant::now(),
             should_quit: false,
             settings_cursor: 0,
+            gpu_section: 0,
+            gpu_last_section: 0,
         };
         if app.config.auto_apply_on_start {
             let _ = app.battery.set_charge_limit(app.desired_limit);
@@ -92,6 +99,7 @@ impl TuiApp {
     fn refresh(&mut self) {
         self.battery.refresh();
         self.system.refresh();
+        self.gpu.refresh();
         self.last_refresh = Instant::now();
     }
 
@@ -145,6 +153,23 @@ impl TuiApp {
         }
     }
 
+    fn do_apply_gpu(&mut self) {
+        self.gpu_last_section = 0;
+        match self.gpu.apply_gpu_mode() {
+            Ok(()) => self.ok("mode set — reboot to apply", 10),
+            Err(e) => self.err(e, 8),
+        }
+    }
+
+    fn do_apply_profile(&mut self) {
+        self.gpu_last_section = 1;
+        let label = self.gpu.pending_profile.label();
+        match self.gpu.apply_power_profile() {
+            Ok(()) => self.ok(format!("{label} profile active"), 4),
+            Err(e) => self.err(e, 8),
+        }
+    }
+
     // ── Input ─────────────────────────────────────────────────────────────────
 
     fn handle_key(&mut self, code: KeyCode, mods: KeyModifiers) {
@@ -166,7 +191,7 @@ impl TuiApp {
 
     fn sidebar_key(&mut self, code: KeyCode) {
         match code {
-            KeyCode::Down  | KeyCode::Char('j') => self.active_tab = (self.active_tab + 1).min(2),
+            KeyCode::Down  | KeyCode::Char('j') => self.active_tab = (self.active_tab + 1).min(3),
             KeyCode::Up    | KeyCode::Char('k') => { if self.active_tab > 0 { self.active_tab -= 1; } }
             KeyCode::Right | KeyCode::Enter | KeyCode::Char('l') => self.focus = Focus::Content,
             _ => {}
@@ -181,7 +206,8 @@ impl TuiApp {
         match self.active_tab {
             0 => self.battery_key(code, mods),
             1 => {} // system tab — read-only
-            2 => self.settings_key(code),
+            2 => self.gpu_key(code),
+            3 => self.settings_key(code),
             _ => {}
         }
     }
@@ -198,6 +224,45 @@ impl TuiApp {
             KeyCode::Char('s') => {
                 if self.battery.info.persistent_enabled { self.do_persist(); } else { self.do_setup(); }
             }
+            _ => {}
+        }
+    }
+
+    fn gpu_key(&mut self, code: KeyCode) {
+        match code {
+            KeyCode::Down  | KeyCode::Char('j') => { if self.gpu_section < 1 { self.gpu_section += 1; } }
+            KeyCode::Up    | KeyCode::Char('k') => { if self.gpu_section > 0 { self.gpu_section -= 1; } }
+            KeyCode::Left => match self.gpu_section {
+                0 => {
+                    let variants = GpuMode::variants();
+                    let idx = self.gpu.pending_mode.index().saturating_sub(1);
+                    self.gpu.pending_mode = variants[idx];
+                }
+                1 => {
+                    let variants = PowerProfile::variants();
+                    let idx = self.gpu.pending_profile.index().saturating_sub(1);
+                    self.gpu.pending_profile = variants[idx];
+                }
+                _ => {}
+            },
+            KeyCode::Right => match self.gpu_section {
+                0 => {
+                    let variants = GpuMode::variants();
+                    let idx = (self.gpu.pending_mode.index() + 1).min(variants.len() - 1);
+                    self.gpu.pending_mode = variants[idx];
+                }
+                1 => {
+                    let variants = PowerProfile::variants();
+                    let idx = (self.gpu.pending_profile.index() + 1).min(variants.len() - 1);
+                    self.gpu.pending_profile = variants[idx];
+                }
+                _ => {}
+            },
+            KeyCode::Enter | KeyCode::Char('a') => match self.gpu_section {
+                0 => self.do_apply_gpu(),
+                1 => self.do_apply_profile(),
+                _ => {}
+            },
             _ => {}
         }
     }
@@ -292,7 +357,8 @@ fn render(f: &mut Frame, app: &TuiApp) {
     match app.active_tab {
         0 => render_battery(f, app, cols[1]),
         1 => render_system(f, app, cols[1]),
-        2 => render_settings(f, app, cols[1]),
+        2 => render_gpu(f, app, cols[1]),
+        3 => render_settings(f, app, cols[1]),
         _ => {}
     }
 }
@@ -342,7 +408,7 @@ fn render_titlebar(f: &mut Frame, app: &TuiApp, area: Rect) {
 fn render_sidebar(f: &mut Frame, app: &TuiApp, area: Rect) {
     let focused  = app.focus == Focus::Sidebar;
     let bdr      = if focused { Color::Rgb(45, 45, 45) } else { LINE };
-    let tabs     = ["battery", "system", "settings"];
+    let tabs     = ["battery", "system", "gpu", "settings"];
 
     let items: Vec<ListItem> = tabs.iter()
         .map(|&t| ListItem::new(format!("  {t}")).style(dim()))
@@ -645,6 +711,181 @@ fn render_system(f: &mut Frame, app: &TuiApp, area: Rect) {
     }
 }
 
+// ── GPU tab ───────────────────────────────────────────────────────────────────
+
+fn render_gpu(f: &mut Frame, app: &TuiApp, area: Rect) {
+    let focused = app.focus == Focus::Content;
+
+    let rows = Layout::vertical([
+        Constraint::Length(7),  // GPU mode block (names + selector + desc + spacer + action)
+        Constraint::Length(6),  // power profile block
+        Constraint::Fill(1),
+    ]).split(area);
+
+    let status_active = !matches!(app.status, Status::None);
+
+    // ── GPU Mode block ────────────────────────────────────────────────────────
+    {
+        let sec_focused = focused && app.gpu_section == 0;
+        let bdr       = if sec_focused { Color::Rgb(35, 60, 45) } else { LINE };
+        let title_col = if sec_focused { GREEN } else { DIM };
+
+        let block = Block::default()
+            .title(Span::styled(" graphics mode ", Style::default().fg(title_col)))
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(bdr));
+        let inner = block.inner(rows[0]);
+        f.render_widget(block, rows[0]);
+
+        let cells = Layout::vertical([
+            Constraint::Length(1), // gpu names
+            Constraint::Length(1), // selector row
+            Constraint::Length(1), // description
+            Constraint::Length(1), // spacer
+            Constraint::Length(1), // action
+            Constraint::Fill(1),
+        ]).split(inner);
+
+        // GPU names row (always shown)
+        {
+            let mut spans: Vec<Span> = vec![];
+            if let Some(ref name) = app.gpu.igpu_name {
+                spans.push(Span::styled("  iGPU  ", fnt()));
+                spans.push(Span::styled(name.as_str(), dim()));
+            }
+            if let Some(ref name) = app.gpu.dgpu_name {
+                spans.push(Span::styled("    dGPU  ", fnt()));
+                spans.push(Span::styled(name.as_str(), dim()));
+            }
+            f.render_widget(Paragraph::new(Line::from(spans)), cells[0]);
+        }
+
+        if app.gpu.envycontrol_available {
+            // Selector row  [cells[1]]
+            let mut spans: Vec<Span> = vec![Span::styled("  mode  ", fnt())];
+            for mode in GpuMode::variants() {
+                let is_active  = mode == app.gpu.mode;
+                let is_pending = mode == app.gpu.pending_mode;
+                let label = if is_pending { format!("[{}]", mode.label()) } else { format!(" {} ", mode.label()) };
+                let style = match (is_active, is_pending) {
+                    (true,  true)  => bg(),
+                    (false, true)  => txt().add_modifier(Modifier::BOLD),
+                    (true,  false) => g(),
+                    (false, false) => dim(),
+                };
+                spans.push(Span::styled(label, style));
+                spans.push(Span::styled("  ", fnt()));
+            }
+            if sec_focused { spans.push(Span::styled("← →", fnt())); }
+            f.render_widget(Paragraph::new(Line::from(spans)), cells[1]);
+
+            // Description  [cells[2]]
+            f.render_widget(
+                Paragraph::new(Span::styled(format!("  {}", app.gpu.pending_mode.description()), dim())),
+                cells[2],
+            );
+
+            // Action line  [cells[4]]
+            let action = if app.gpu.needs_reboot && app.gpu.pending_mode == app.gpu.mode {
+                Paragraph::new(Line::from(vec![
+                    Span::styled("  ✓ mode staged  ", g()),
+                    Span::styled("reboot to apply", dim()),
+                ]))
+            } else if status_active && app.gpu_last_section == 0 {
+                match &app.status {
+                    Status::Ok(msg)  => Paragraph::new(Line::from(vec![Span::styled("  ✓  ", g()),   Span::styled(msg.as_str(), g())])),
+                    Status::Err(msg) => Paragraph::new(Line::from(vec![Span::styled("  ✗  ", dng()), Span::styled(msg.as_str(), dng())])),
+                    Status::None     => Paragraph::new(Line::from(vec![])),
+                }
+            } else {
+                let changed = app.gpu.pending_mode != app.gpu.mode;
+                Paragraph::new(Line::from(vec![
+                    Span::styled("  [a/↵] apply  ", if changed { g() } else { dim() }),
+                    Span::styled("requires reboot", fnt()),
+                ]))
+            };
+            f.render_widget(action, cells[4]);
+        } else {
+            f.render_widget(
+                Paragraph::new(Line::from(vec![
+                    Span::styled("  envycontrol not found  ", dng()),
+                    Span::styled("install: github.com/bayasdev/envycontrol", dim()),
+                ])),
+                cells[1],
+            );
+        }
+    }
+
+    // ── Power Profile block ───────────────────────────────────────────────────
+    {
+        let sec_focused = focused && app.gpu_section == 1;
+        let bdr       = if sec_focused { Color::Rgb(35, 60, 45) } else { LINE };
+        let title_col = if sec_focused { GREEN } else { DIM };
+
+        let block = Block::default()
+            .title(Span::styled(" power profile ", Style::default().fg(title_col)))
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(bdr));
+        let inner = block.inner(rows[1]);
+        f.render_widget(block, rows[1]);
+
+        let cells = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Fill(1),
+        ]).split(inner);
+
+        if app.gpu.platform_profile_available {
+            // Selector row
+            let mut spans: Vec<Span> = vec![Span::styled("  profile  ", fnt())];
+            for profile in PowerProfile::variants() {
+                let is_active  = profile == app.gpu.power_profile;
+                let is_pending = profile == app.gpu.pending_profile;
+                let label = if is_pending { format!("[{}]", profile.label()) } else { format!(" {} ", profile.label()) };
+                let style = match (is_active, is_pending) {
+                    (true,  true)  => bg(),
+                    (false, true)  => txt().add_modifier(Modifier::BOLD),
+                    (true,  false) => g(),
+                    (false, false) => dim(),
+                };
+                spans.push(Span::styled(label, style));
+                spans.push(Span::styled("  ", fnt()));
+            }
+            if sec_focused { spans.push(Span::styled("← →", fnt())); }
+            f.render_widget(Paragraph::new(Line::from(spans)), cells[0]);
+
+            // Description
+            f.render_widget(
+                Paragraph::new(Span::styled(format!("  {}", app.gpu.pending_profile.description()), dim())),
+                cells[1],
+            );
+
+            // Action line
+            let action = if status_active && app.gpu_last_section == 1 {
+                match &app.status {
+                    Status::Ok(msg)  => Paragraph::new(Line::from(vec![Span::styled("  ✓  ", g()),   Span::styled(msg.as_str(), g())])),
+                    Status::Err(msg) => Paragraph::new(Line::from(vec![Span::styled("  ✗  ", dng()), Span::styled(msg.as_str(), dng())])),
+                    Status::None     => Paragraph::new(Line::from(vec![])),
+                }
+            } else {
+                let changed = app.gpu.pending_profile != app.gpu.power_profile;
+                Paragraph::new(Span::styled("  [a/↵] apply", if changed { g() } else { dim() }))
+            };
+            f.render_widget(action, cells[3]);
+        } else {
+            f.render_widget(
+                Paragraph::new(Span::styled(
+                    "  platform_profile not available on this kernel",
+                    dng(),
+                )),
+                cells[0],
+            );
+        }
+    }
+}
+
 // ── Settings tab ──────────────────────────────────────────────────────────────
 
 fn render_settings(f: &mut Frame, app: &TuiApp, area: Rect) {
@@ -709,7 +950,8 @@ fn render_statusbar(f: &mut Frame, app: &TuiApp, area: Rect) {
     let keys = match (app.active_tab, app.focus) {
         (0, Focus::Content) => "  q quit   tab→sidebar   ←→ limit   shift+←→ ±5   1/2/3 presets   a/↵ apply   s setup/persist   r refresh",
         (1, Focus::Content) => "  q quit   tab→sidebar   r refresh",
-        (2, Focus::Content) => "  q quit   tab→sidebar   j/k navigate   ←→ adjust   space/↵ toggle   r refresh",
+        (2, Focus::Content) => "  q quit   tab→sidebar   j/k section   ← → select   a/↵ apply   r refresh",
+        (3, Focus::Content) => "  q quit   tab→sidebar   j/k navigate   ←→ adjust   space/↵ toggle   r refresh",
         (_, Focus::Sidebar)  => "  q quit   j/k navigate   ↵/→ select tab   tab→content   r refresh",
         _                    => "  q quit",
     };
