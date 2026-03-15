@@ -1,5 +1,7 @@
 # ghelper-linux
 
+**Still under development
+
 A terminal UI (TUI) alternative to [GHelper](https://github.com/seerge/g-helper) for ASUS ROG / TUF laptops on Linux (Pop!_OS, Ubuntu, Arch, etc.).
 
 **Primary feature: battery charge cap** — stop charging at 60 / 80 / 100% to extend long-term battery health.
