@@ -21,6 +21,7 @@ use ratatui::{
 };
 
 use crate::{
+    backlight::KbdBacklight,
     battery::{BatteryManager, ChargeStatus},
     config::Config,
     gpu::{GpuManager, GpuMode, PowerProfile},
@@ -57,6 +58,7 @@ pub struct TuiApp {
     pub system:           SystemInfo,
     pub config:           Config,
     pub gpu:              GpuManager,
+    pub backlight:        KbdBacklight,
     pub active_tab:       usize,   // 0 battery  1 system  2 gpu  3 settings
     pub focus:            Focus,
     pub desired_limit:    u8,
@@ -79,6 +81,7 @@ impl TuiApp {
             battery,
             system: SystemInfo::new(),
             gpu: GpuManager::new(),
+            backlight: KbdBacklight::new(),
             config,
             active_tab: 0,
             focus: Focus::Sidebar,
@@ -100,6 +103,7 @@ impl TuiApp {
         self.battery.refresh();
         self.system.refresh();
         self.gpu.refresh();
+        self.backlight.refresh();
         self.last_refresh = Instant::now();
     }
 
@@ -149,6 +153,13 @@ impl TuiApp {
     fn do_persist(&mut self) {
         match self.battery.update_persistent_limit(self.desired_limit) {
             Ok(()) => self.ok("persistent limit updated", 4),
+            Err(e) => self.err(e, 8),
+        }
+    }
+
+    fn do_apply_backlight(&mut self) {
+        match self.backlight.apply() {
+            Ok(()) => self.ok(format!("backlight set to {}", self.backlight.level), 4),
             Err(e) => self.err(e, 8),
         }
     }
@@ -268,17 +279,26 @@ impl TuiApp {
     }
 
     fn settings_key(&mut self, code: KeyCode) {
+        let last_row = if self.backlight.available { 4 } else { 3 };
         match code {
-            KeyCode::Down  | KeyCode::Char('j') => self.settings_cursor = (self.settings_cursor + 1).min(3),
+            KeyCode::Down  | KeyCode::Char('j') => self.settings_cursor = (self.settings_cursor + 1).min(last_row),
             KeyCode::Up    | KeyCode::Char('k') => { if self.settings_cursor > 0 { self.settings_cursor -= 1; } }
             KeyCode::Left  => match self.settings_cursor {
                 0 => { self.config.charge_limit = self.config.charge_limit.saturating_sub(1).max(20); self.desired_limit = self.config.charge_limit; self.config.save(); }
                 2 => { if self.config.refresh_secs > 1 { self.config.refresh_secs -= 1; self.config.save(); } }
+                4 => {
+                    self.backlight.pending_level = self.backlight.pending_level.saturating_sub(1);
+                    self.do_apply_backlight();
+                }
                 _ => {}
             },
             KeyCode::Right => match self.settings_cursor {
                 0 => { self.config.charge_limit = self.config.charge_limit.saturating_add(1).min(100); self.desired_limit = self.config.charge_limit; self.config.save(); }
                 2 => { if self.config.refresh_secs < 60 { self.config.refresh_secs += 1; self.config.save(); } }
+                4 => {
+                    self.backlight.pending_level = (self.backlight.pending_level + 1).min(self.backlight.max_level);
+                    self.do_apply_backlight();
+                }
                 _ => {}
             },
             KeyCode::Enter | KeyCode::Char(' ') => match self.settings_cursor {
@@ -781,7 +801,10 @@ fn render_gpu(f: &mut Frame, app: &TuiApp, area: Rect) {
 
             // Description  [cells[2]]
             f.render_widget(
-                Paragraph::new(Span::styled(format!("  {}", app.gpu.pending_mode.description()), dim())),
+                Paragraph::new(Span::styled(
+                    format!("  {}", app.gpu.pending_mode.description(app.gpu.igpu_name.as_deref(), app.gpu.dgpu_name.as_deref())),
+                    dim(),
+                )),
                 cells[2],
             );
 
@@ -914,12 +937,15 @@ fn render_settings(f: &mut Frame, app: &TuiApp, area: Rect) {
         rows[0],
     );
 
-    let settings: &[(&str, String, &str)] = &[
+    let mut settings: Vec<(&str, String, &str)> = vec![
         ("default charge limit",  format!("{}%",  app.config.charge_limit),           "← →"),
         ("apply on startup",      (if app.config.auto_apply_on_start {"on"} else {"off"}).to_string(), "space/↵"),
         ("refresh interval",      format!("{}s",  app.config.refresh_secs),            "← →"),
         ("persistence setup",     (if app.battery.info.persistent_enabled {"configured"} else {"not configured"}).to_string(), "↵"),
     ];
+    if app.backlight.available {
+        settings.push(("keyboard backlight", format!("{} / {}", app.backlight.pending_level, app.backlight.max_level), "← →"));
+    }
 
     let mut lines: Vec<Line> = vec![];
     for (i, (label, value, key)) in settings.iter().enumerate() {

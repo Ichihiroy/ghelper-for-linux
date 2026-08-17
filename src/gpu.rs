@@ -22,12 +22,16 @@ impl GpuMode {
         }
     }
 
-    pub fn description(self) -> &'static str {
+    /// Human-readable description, naming the actually-detected iGPU/dGPU
+    /// rather than assuming an Intel+NVIDIA setup (also true on AMD laptops).
+    pub fn description(self, igpu_name: Option<&str>, dgpu_name: Option<&str>) -> String {
+        let igpu = igpu_name.unwrap_or("iGPU");
+        let dgpu = dgpu_name.unwrap_or("dGPU");
         match self {
-            Self::Integrated => "Intel iGPU only  ·  best battery life",
-            Self::Hybrid     => "Intel + NVIDIA PRIME  ·  balanced",
-            Self::Discrete   => "NVIDIA dGPU only  ·  max performance",
-            Self::Unknown    => "",
+            Self::Integrated => format!("{igpu} only  ·  best battery life"),
+            Self::Hybrid     => format!("{igpu} + {dgpu} PRIME  ·  balanced"),
+            Self::Discrete   => format!("{dgpu} only  ·  max performance"),
+            Self::Unknown    => String::new(),
         }
     }
 

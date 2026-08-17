@@ -1,4 +1,5 @@
 mod app;
+mod backlight;
 mod battery;
 mod config;
 mod gpu;
