@@ -24,14 +24,17 @@ impl GpuMode {
 
     /// Human-readable description, naming the actually-detected iGPU/dGPU
     /// rather than assuming an Intel+NVIDIA setup (also true on AMD laptops).
+    /// When no discrete GPU was detected, says so explicitly instead of
+    /// printing a bare "dGPU" placeholder for a mode that can't work.
     pub fn description(self, igpu_name: Option<&str>, dgpu_name: Option<&str>) -> String {
         let igpu = igpu_name.unwrap_or("iGPU");
-        let dgpu = dgpu_name.unwrap_or("dGPU");
-        match self {
-            Self::Integrated => format!("{igpu} only  ·  best battery life"),
-            Self::Hybrid     => format!("{igpu} + {dgpu} PRIME  ·  balanced"),
-            Self::Discrete   => format!("{dgpu} only  ·  max performance"),
-            Self::Unknown    => String::new(),
+        match (self, dgpu_name) {
+            (Self::Integrated, _)       => format!("{igpu} only  ·  best battery life"),
+            (Self::Hybrid, Some(dgpu))  => format!("{igpu} + {dgpu} PRIME  ·  balanced"),
+            (Self::Hybrid, None)        => "no discrete GPU detected  ·  mode unavailable".to_string(),
+            (Self::Discrete, Some(dgpu)) => format!("{dgpu} only  ·  max performance"),
+            (Self::Discrete, None)      => "no discrete GPU detected  ·  mode unavailable".to_string(),
+            (Self::Unknown, _)          => String::new(),
         }
     }
 
